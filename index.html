@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>MuseApp Sequencer</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+      background: #111;
+      color: #eee;
+    }
+    h1 {
+      font-size: 1.6rem;
+    }
+    section.controls, label {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    label > input {
+      padding: 0.3rem 0.5rem;
+      font-size: 1rem;
+      border-radius: 0.3rem;
+      border: 1px solid #555;
+      background: #222;
+      color: #eee;
+      width: 6rem;
+    }
+    button {
+      padding: 0.4rem 1rem;
+      font-size: 1rem;
+      border: 1px solid #555;
+      border-radius: 0.3rem;
+      background: #444;
+      color: #eee;
+      cursor: pointer;
+    }
+    table {
+      border-collapse: collapse;
+    }
+    td, th {
+      border: 1px solid #333;
+      width: 32px;
+      height: 32px;
+      text-align: center;
+    }
+    tr.pad-label td {
+      background: #222;
+      font-weight: 600;
+    }
+    td.step-current {
+      outline: 2px solid #0af;
+    }
+    .tracks, .knobs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.6rem;
+      width: 100%;
+    }
+    .knob-box {
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 0.4rem;
+      padding: 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>MuseApp Sequencer 🎛️</h1>
+  <section class="controls">
+    <label>BPM: <input type="number" id="bpm" value="120" /></label>
+    <button id="loadSamples">+ Carregar Samples</button>
+    <button id="play">▶ Play</button>
+    <button id="stop" disabled>■ Stop</button>
+    <input type="file" id="sampleFiles" accept="audio/*" multiple hidden />
+  </section>
+
+  <table id="seq"></table>
+  <section class="knobs" id="knob-area"></section>
+
+  <script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const STEPS = 16;
+    const PADS = 8;
+    const KNOBS = 4;
+    let samples = {};
+    let bpm = 120, step = 0, playing = false, timer = null;
+    const padNotes = [36, 38, 40, 41, 43, 45, 47, 48];
+
+    const table = document.getElementById("seq");
+    table.innerHTML = "<thead><tr><th></th>" + [...Array(STEPS)].map((_, i) => `<th>${i + 1}</th>`).join("") + "</tr></thead>";
+    const tb = document.createElement("tbody");
+    padNotes.forEach((note, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="pad-label">Pad ${i + 1}</td>` + [...Array(STEPS)].map((_, s) => `<td><input type="checkbox" data-note="${note}" data-step="${s}"></td>`).join("");
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+
+    function highlightStep(s) {
+      document.querySelectorAll("td.step-current").forEach(td => td.classList.remove("step-current"));
+      document.querySelectorAll(`td:nth-child(${s + 2})`).forEach(td => td.classList.add("step-current"));
+    }
+
+    function playStep() {
+      document.querySelectorAll(`input[data-step='${step}']`).forEach(cb => {
+        if (cb.checked) playSample(+cb.dataset.note);
+      });
+      highlightStep(step);
+      step = (step + 1) % STEPS;
+    }
+
+    function playSample(note) {
+      const buffer = samples[note];
+      if (!buffer) return;
+      const src = audioCtx.createBufferSource();
+      src.buffer = buffer;
+
+      const gain = audioCtx.createGain();
+      gain.gain.value = knobValues[0]; // volume
+
+      const pan = audioCtx.createStereoPanner();
+      pan.pan.value = knobValues[1] * 2 - 1; // -1 a +1
+
+      const pitch = knobValues[2]; // 0.5 a 2
+      src.playbackRate.value = 0.5 + pitch * 1.5;
+
+    
+
+      src.connect(gain).connect(pan).connect(audioCtx.destination);
+      src.start();
+    }
+
+    function startSeq() {
+      if (playing) return;
+      step = 0;
+      bpm = parseInt(document.getElementById("bpm").value) || 120;
+      const interval = 60000 / (bpm * 4);
+      timer = setInterval(playStep, interval);
+      playing = true;
+      document.getElementById("play").disabled = true;
+      document.getElementById("stop").disabled = false;
+    }
+
+    function stopSeq() {
+      clearInterval(timer);
+      playing = false;
+      document.getElementById("play").disabled = false;
+      document.getElementById("stop").disabled = true;
+      highlightStep(-1);
+    }
+
+    document.getElementById("play").onclick = startSeq;
+    document.getElementById("stop").onclick = stopSeq;
+
+    let knobValues = [1, 0.5, 1, 0]; // vol, pan, pitch, reserva
+
+    const knobArea = document.getElementById("knob-area");
+    for (let i = 0; i < KNOBS; i++) {
+      const box = document.createElement("div");
+      box.className = "knob-box";
+      box.innerHTML = `<label>Modificator ${i + 1}</label>
+        <input type="range" min="0" max="1" step="0.01" value="${knobValues[i]}">`;
+      knobArea.appendChild(box);
+      box.querySelector("input").oninput = e => knobValues[i] = parseFloat(e.target.value);
+    }
+
+    document.getElementById("loadSamples").onclick = () => {
+      document.getElementById("sampleFiles").click();
+    };
+
+    document.getElementById("sampleFiles").onchange = e => {
+      const files = e.target.files;
+      [...files].forEach((file, i) => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          audioCtx.decodeAudioData(ev.target.result).then(buf => {
+            const note = padNotes[i % padNotes.length];
+            samples[note] = buf;
+            console.log("Sample atribuído ao pad", note);
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    };
+  </script>
+</body>
+</html>
